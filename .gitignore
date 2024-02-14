@@ -1,0 +1,11 @@
+.idea
+.DS_Store
+config.yaml
+.env
+sme-demo
+docs
+*.zip
+ijhttp
+tests/*.json
+!http-client.env.json
+internal/api
