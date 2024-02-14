@@ -16,12 +16,12 @@ jobs:
           go-version: ${{ matrix.go-version }}
           cache-dependency-path: |
             ./go.sum
+      - name: Get dependencies
+        run: go mod download
       - name: Install dependencies
         run: go generate ./...
-      - name: Build
-        run: go build ./**/*.go
-      - name: Test with the Go CLI
-        run: go test ./**/*.go
+      - name: Build and test
+        run: go run cmd/build-all/main.go
 
   create-release:
     needs: build
