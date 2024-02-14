@@ -10,3 +10,4 @@ tests/*.json
 !http-client.env.json
 internal/api
 go.work
+pkg/ai/mocks/*
