@@ -3,7 +3,7 @@ name: Test and build docker image
 on: push
 
 jobs:
-  build-backend:
+  build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -22,30 +22,9 @@ jobs:
         run: go build ./**/*.go
       - name: Test with the Go CLI
         run: go test ./**/*.go
-  docker:
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v2
-      - name: Build docker
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
-          push: false
-          tags: test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            VERSION=dev
-            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
   create-release:
+    needs: build
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     runs-on: ubuntu-latest
