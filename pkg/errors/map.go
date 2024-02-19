@@ -21,3 +21,10 @@ func MapErrorCodeToHTTPStatus(code ErrorCode) int {
 	}
 	return http.StatusInternalServerError
 }
+
+func MapErrorToHTTPStatus(err error) int {
+	if e, ok := err.(ErrorInterface); ok {
+		return MapErrorCodeToHTTPStatus(e.Code())
+	}
+	return http.StatusInternalServerError
+}
