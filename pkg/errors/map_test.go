@@ -13,12 +13,12 @@ func TestMapErrorCodeToHTTPStatus(t *testing.T) {
 	}{
 		{
 			name: "MissingAPIKey",
-			args: args{code: MissingAPIKey},
+			args: args{code: ErrorMissingAPIKey},
 			want: 401,
 		},
 		{
 			name: "InvalidAPIKey",
-			args: args{code: InvalidAPIKey},
+			args: args{code: ErrorInvalidAPIKey},
 			want: 401,
 		},
 		{
