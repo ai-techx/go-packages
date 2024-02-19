@@ -9,6 +9,7 @@ package errors
 type ErrorCode int
 
 const (
-	MissingAPIKey ErrorCode = 2000
-	InvalidAPIKey ErrorCode = 2001
+	ErrorMissingAPIKey    ErrorCode = 2000
+	ErrorInvalidAPIKey    ErrorCode = 2001
+	ErrorDocumentNotFound ErrorCode = 4000
 )
