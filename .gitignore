@@ -11,3 +11,5 @@ tests/*.json
 internal/api
 go.work
 pkg/ai/mocks/*
+mock_*
+go.work.sum

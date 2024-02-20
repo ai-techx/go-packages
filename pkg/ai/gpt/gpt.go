@@ -1,20 +1,19 @@
 package gpt
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/go-resty/resty/v2"
+	"github.com/google/logger"
 	template "github.com/meta-metopia/go-packages/pkg/ai"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/dto"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/functions"
-	"io"
-	"net/http"
-
-	"github.com/google/logger"
 )
 
 type IGptClient interface {
-	Generate(prompt *string, history []dto.MessageResponseDto) (*string, []dto.MessageResponseDto, error)
+	Generate(prompt *string, history []dto.MessageResponseDto) ([]dto.MessageResponseDto, []dto.MessageResponseDto, error)
+	SetClient(client *resty.Client)
+	SetFunctions(functions *[]functions.FunctionInterface)
 }
 
 type Config struct {
@@ -24,75 +23,80 @@ type Config struct {
 }
 
 type Client struct {
-	functions *[]functions.IFunction
-	store     functions.FunctionStore
-	template  template.Engine
-	config    Config
+	functions  *[]functions.FunctionInterface
+	store      functions.FunctionStore
+	template   template.Engine
+	config     Config
+	httpClient *resty.Client
 }
 
 // NewGptClient returns a new instance of GptClient.
-func NewGptClient(aiFunctions *[]functions.IFunction, template template.Engine, functionStore functions.FunctionStore, config Config) IGptClient {
+func NewGptClient(aiFunctions *[]functions.FunctionInterface, template template.Engine, functionStore functions.FunctionStore, config Config) IGptClient {
+	for functionIndex, _ := range *aiFunctions {
+		(*aiFunctions)[functionIndex].SetStore(functionStore)
+	}
 	return &Client{
-		functions: aiFunctions,
-		template:  template,
-		store:     functionStore,
-		config:    config,
+		functions:  aiFunctions,
+		template:   template,
+		store:      functionStore,
+		config:     config,
+		httpClient: resty.New(),
 	}
 }
 
-// Generate takes in a prompt and returns a generated errors.
-func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (*string, []dto.MessageResponseDto, error) {
+// SetClient sets the resty client for the GPT client.
+func (g *Client) SetClient(client *resty.Client) {
+	g.httpClient = client
+}
+
+// SetFunctions sets the functions for the GPT client.
+func (g *Client) SetFunctions(functions *[]functions.FunctionInterface) {
+	g.functions = functions
+}
+
+// Generate generates a response from the GPT API.
+// It returns the response and an error if there is one.
+// [newResponses] are list of new responses from the GPT API.
+// [fullHistory] is the full history of the conversation.
+// [err] is the error if there is one.
+func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (newResponses []dto.MessageResponseDto, fullHistory []dto.MessageResponseDto, err error) {
 	messages := g.createMessages(prompt, history)
+	newHistory, err := g.generate(messages, err)
+
+	difference := len(newHistory) - len(messages)
+	if difference > 0 {
+		newResponses = newHistory[len(messages):]
+	}
+	fullHistory = newHistory
+	return newResponses, fullHistory, err
+}
+
+// generate generates a response from the GPT API. This is the internal function that is called by Generate.
+func (g *Client) generate(messages []dto.MessageResponseDto, err error) (newHistory []dto.MessageResponseDto, error error) {
 	body := dto.RequestDto{
 		Messages:  messages,
 		Functions: g.generateFunctions(),
 	}
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return nil, nil, err
-	}
-	request, err := http.NewRequest(http.MethodPost, g.config.Endpoint, bytes.NewBuffer(jsonBody))
-	request.Header.Add("api-key", g.config.ApiKey)
+
+	var gptRequest dto.ResponseDto
+
+	response, err := g.httpClient.R().SetHeader("api-key", g.config.ApiKey).SetBody(body).SetResult(
+		&gptRequest,
+	).Post(g.config.Endpoint)
 
 	if err != nil {
-		return nil, nil, err
+		logger.Error(err)
+		return nil, err
 	}
 
-	client := &http.Client{}
-	response, err := client.Do(request)
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// log errors body
-	//var result map[string]interface{}
-	var result dto.ResponseDto
-	var stringBody string
-
-	// read errors body
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(response.Body)
-	stringBody = buf.String()
-
-	// write back to errors body
-	response.Body = io.NopCloser(bytes.NewBufferString(stringBody))
-
-	err = json.NewDecoder(response.Body).Decode(&result)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// if gpt api throws an error, return empty string
-	if response.StatusCode != http.StatusOK {
-		logger.Errorf("GPT request failed with status code: %v, %s", response.StatusCode, stringBody)
-		return nil, nil, fmt.Errorf("gpt request failed with status code: %v", response.StatusCode)
+	if !response.IsSuccess() {
+		logger.Errorf("failed to generate response: %v", response)
+		return nil, fmt.Errorf("failed to generate response: %v", response)
 	}
 
 	// use function if there is one
-	message := result.Choices[0].Message
-	logger.Infof(stringBody)
-	newHistory := append(messages, dto.MessageResponseDto{
+	message := gptRequest.Choices[0].Message
+	newHistory = append(messages, dto.MessageResponseDto{
 		Role:         message.Role,
 		Content:      message.Content,
 		Name:         message.Name,
@@ -101,13 +105,10 @@ func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (*st
 	newHistory, err = g.useFunction(message, newHistory)
 	if err != nil {
 		logger.Error(err)
-		return nil, nil, err
+		return nil, err
 	}
 
-	defer response.Body.Close()
-
-	content := newHistory[len(newHistory)-1].Content
-	return &content, newHistory, nil
+	return newHistory, nil
 }
 
 func (g *Client) generateFunctions() []dto.FunctionResponseDto {
@@ -123,6 +124,9 @@ func (g *Client) generateFunctions() []dto.FunctionResponseDto {
 	return returnedFunctions
 }
 
+// useFunction uses the function if there is one in the response.
+// It returns the new history and an error if there is one.
+// If the function is configured to use GPT to interpret responses, it will call the GPT API again to interpret the responses.
 func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.MessageResponseDto) ([]dto.MessageResponseDto, error) {
 	newHistory := history
 	if result.FunctionCall != nil {
@@ -133,8 +137,7 @@ func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.Messag
 				if err != nil {
 					return nil, err
 				}
-				function.SetStore(g.store)
-				result, err := function.Execute(functionArguments)
+				result, err := function.OnMessage(functionArguments)
 				if err != nil {
 					return newHistory, err
 				}

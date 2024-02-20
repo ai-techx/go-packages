@@ -1,7 +1,17 @@
 package functions
 
-type IFunction interface {
-	Execute(arguments map[string]interface{}) (*FunctionGptResponse, error)
+//go:generate mockgen -destination=mock_function.go -package=functions . FunctionInterface
+type FunctionInterface interface {
+	// OnInit is a life cycle method that is called when the function is initialized.
+	OnInit() error
+	//OnMessage is a life cycle method that is called when a message is received and the function is called.
+	OnMessage(arguments map[string]interface{}) (*FunctionGptResponse, error)
+	// OnBeforeMessageReturned is a life cycle method that is called before the message is returned
+	// to the user. If the function returns a response, the response will be appended to the end of the message
+	// list.
+	OnBeforeMessageReturned() (*FunctionGptResponse, error)
+	// OnClose is a life cycle method that is called when the function is closed.
+	OnClose() error
 	// Name returns the name of the function.
 	Name() string
 	// Description returns a description of the function.
