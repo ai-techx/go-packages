@@ -42,5 +42,6 @@ func main() {
 	logger.Info("Building all packages")
 	runCommandAll("pkg", "go", "build", ".")
 	logger.Info("Testing all packages")
-	runCommandAll("pkg", "go", "test", ".")
+	runCommandAll("pkg", "go", "generate", "./...")
+	runCommandAll("pkg", "go", "test", "./...")
 }

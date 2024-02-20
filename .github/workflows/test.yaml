@@ -16,6 +16,8 @@ jobs:
           go-version: ${{ matrix.go-version }}
           cache-dependency-path: |
             ./go.sum
+      - name: Install mockgen
+        run: go install go.uber.org/mock/mockgen@latest
       - name: Get dependencies
         run: go mod download
       - name: Install dependencies
