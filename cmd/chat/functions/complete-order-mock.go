@@ -5,14 +5,10 @@ import (
 )
 
 type CompleteOrderFunction struct {
+	functions.FunctionClient
 }
 
-func (m CompleteOrderFunction) OnInit() error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m CompleteOrderFunction) OnMessage(arguments map[string]interface{}) (*functions.FunctionGptResponse, error) {
+func (m *CompleteOrderFunction) OnMessage(arguments map[string]interface{}) (*functions.FunctionGptResponse, error) {
 	resp := &functions.FunctionGptResponse{
 		Content: "訂單完成！",
 	}
@@ -20,25 +16,15 @@ func (m CompleteOrderFunction) OnMessage(arguments map[string]interface{}) (*fun
 	return resp, nil
 }
 
-func (m CompleteOrderFunction) OnBeforeMessageReturned() (*functions.FunctionGptResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m CompleteOrderFunction) OnClose() error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m CompleteOrderFunction) Name() string {
+func (m *CompleteOrderFunction) Name() string {
 	return "complete-order"
 }
 
-func (m CompleteOrderFunction) Description() string {
-	return "Complete the order."
+func (m *CompleteOrderFunction) Description() string {
+	return "Complete the order.如果用戶不需要其他的東西了，會調用此函數。"
 }
 
-func (m CompleteOrderFunction) Parameters() map[string]interface{} {
+func (m *CompleteOrderFunction) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type":       "object",
 		"required":   []string{},
@@ -46,10 +32,10 @@ func (m CompleteOrderFunction) Parameters() map[string]interface{} {
 	}
 }
 
-func (m CompleteOrderFunction) SetStore(store functions.FunctionStore) {
+func (m *CompleteOrderFunction) SetStore(store functions.FunctionStore) {
 }
 
-func (m CompleteOrderFunction) Config() functions.FunctionConfig {
+func (m *CompleteOrderFunction) Config() functions.FunctionConfig {
 	return functions.FunctionConfig{
 		UseGptToInterpretResponses: true,
 	}

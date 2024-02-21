@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/fatih/color"
 	"github.com/google/logger"
@@ -42,6 +43,21 @@ func stringPtr(s string) *string {
 	return &s
 }
 
+func saveHistoryToFile(history []dto.MessageResponseDto, fileName string) {
+	file, err := os.Create(fileName)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer file.Close()
+
+	indent, err := json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return
+	}
+
+	_, err = file.Write(indent)
+}
+
 func calculatePricing(model Model, history []dto.MessageResponseDto) (total float64, completionToken int, promptToken int) {
 	for _, message := range history {
 		if message.Usage == nil {
@@ -60,7 +76,7 @@ func calculatePricing(model Model, history []dto.MessageResponseDto) (total floa
 func main() {
 	logger.Init("Chatbot", true, false, io.Discard)
 	inputClient := input.NewPromptInput()
-	outputClient := output.NewAzureSpeechOutput("zh-CN-YunyangNeural")
+	outputClient := output.NewAzureSpeechOutput("zh-CN-YunyeNeural")
 	gptFunctions := []functions.FunctionInterface{
 		functions2.NewGetAllMenuFunction(),
 		functions2.NewCompleteOrderFunction(),
@@ -126,6 +142,7 @@ func main() {
 					deleteLastLine()
 				}
 			}
+			saveHistoryToFile(history, "history.json")
 		}
 	}
 }
