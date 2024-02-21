@@ -4,6 +4,8 @@ on: push
 
 jobs:
   build:
+    env:
+      GOPRIVATE: github.com/meta-metopia/go-packages
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -18,6 +20,12 @@ jobs:
             ./go.sum
       - name: Install mockgen
         run: go install go.uber.org/mock/mockgen@latest
+      - name: Configure git for private modules
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: git config --global url."https://YOUR_GITHUB_USERNAME:${TOKEN}@github.com".insteadOf "https://github.com"
+      - name: Workspace
+        run: go work init && go work use -r .
       - name: Get dependencies
         run: go mod download
       - name: Install dependencies

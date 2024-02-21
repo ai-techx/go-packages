@@ -13,3 +13,4 @@ go.work
 pkg/ai/mocks/*
 mock_*
 go.work.sum
+*.mp3

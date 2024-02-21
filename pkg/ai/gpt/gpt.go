@@ -8,6 +8,7 @@ import (
 	template "github.com/meta-metopia/go-packages/pkg/ai"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/dto"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/functions"
+	"strings"
 )
 
 type IGptClient interface {
@@ -20,6 +21,7 @@ type Config struct {
 	Endpoint string
 	ApiKey   string
 	Prompt   string
+	Model    string
 }
 
 type Client struct {
@@ -35,12 +37,14 @@ func NewGptClient(aiFunctions *[]functions.FunctionInterface, template template.
 	for functionIndex, _ := range *aiFunctions {
 		(*aiFunctions)[functionIndex].SetStore(functionStore)
 	}
+
+	client := resty.New()
 	return &Client{
 		functions:  aiFunctions,
 		template:   template,
 		store:      functionStore,
 		config:     config,
-		httpClient: resty.New(),
+		httpClient: client,
 	}
 }
 
@@ -60,6 +64,12 @@ func (g *Client) SetFunctions(functions *[]functions.FunctionInterface) {
 // [fullHistory] is the full history of the conversation.
 // [err] is the error if there is one.
 func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (newResponses []dto.MessageResponseDto, fullHistory []dto.MessageResponseDto, err error) {
+	if isOpenAIEndpoint(g.config.Endpoint) {
+		if len(g.config.Model) == 0 {
+			return nil, nil, fmt.Errorf("model is required for openai gpt endpoint")
+		}
+	}
+
 	messages := g.createMessages(prompt, history)
 	newHistory, err := g.generate(messages, err)
 
@@ -80,7 +90,15 @@ func (g *Client) generate(messages []dto.MessageResponseDto, err error) (newHist
 
 	var gptRequest dto.ResponseDto
 
-	response, err := g.httpClient.R().SetHeader("api-key", g.config.ApiKey).SetBody(body).SetResult(
+	requestClient := g.httpClient.R()
+
+	if isOpenAIEndpoint(g.config.Endpoint) {
+		requestClient = requestClient.SetHeader("Authorization", "Bearer "+g.config.ApiKey)
+		body.Model = g.config.Model
+	} else {
+		requestClient = requestClient.SetHeader("api-key", g.config.ApiKey)
+	}
+	response, err := requestClient.SetBody(body).SetResult(
 		&gptRequest,
 	).Post(g.config.Endpoint)
 
@@ -101,6 +119,7 @@ func (g *Client) generate(messages []dto.MessageResponseDto, err error) (newHist
 		Content:      message.Content,
 		Name:         message.Name,
 		FunctionCall: message.FunctionCall,
+		Usage:        gptRequest.Usage,
 	})
 	newHistory, err = g.useFunction(message, newHistory)
 	if err != nil {
@@ -184,6 +203,7 @@ func (g *Client) createMessages(prompt *string, history []dto.MessageResponseDto
 		})
 	}
 	for _, message := range history {
+		message.Usage = nil
 		messages = append(messages, message)
 	}
 
@@ -194,4 +214,8 @@ func (g *Client) createMessages(prompt *string, history []dto.MessageResponseDto
 		})
 	}
 	return messages
+}
+
+func isOpenAIEndpoint(endpoint string) bool {
+	return strings.Contains(endpoint, "api.openai.com")
 }
