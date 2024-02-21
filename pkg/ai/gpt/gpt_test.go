@@ -67,17 +67,17 @@ func (suite *GptTestSuite) TestGptWithoutFunctionCall() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	newResponses, history, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	newResponses, err := client.Generate(&prompt, []dto.MessageResponseDto{})
 
 	assert.Nil(suite.T(), err)
-	assert.Equal(suite.T(), len(newResponses), 1)
-	assert.Equal(suite.T(), 3, len(history))
+	assert.Equal(suite.T(), len(newResponses.NewResponses), 1)
+	assert.Equal(suite.T(), 3, len(newResponses.FullHistory))
 
-	newResponses, history, err = client.Generate(&prompt, history)
+	newResponses, err = client.Generate(&prompt, newResponses.FullHistory)
 
 	assert.Nil(suite.T(), err)
-	assert.Equal(suite.T(), len(newResponses), 1)
-	assert.Equal(suite.T(), 5, len(history))
+	assert.Equal(suite.T(), len(newResponses.NewResponses), 1)
+	assert.Equal(suite.T(), 5, len(newResponses.FullHistory))
 }
 
 func (suite *GptTestSuite) TestGptWithError() {
@@ -106,11 +106,11 @@ func (suite *GptTestSuite) TestGptWithError() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	content, history, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	response, err := client.Generate(&prompt, []dto.MessageResponseDto{})
 
 	assert.NotNil(suite.T(), err)
-	assert.Nil(suite.T(), content)
-	assert.Equal(suite.T(), 0, len(history))
+	assert.Nil(suite.T(), response.NewResponses)
+	assert.Nil(suite.T(), response.FullHistory)
 }
 
 func (suite *GptTestSuite) TestGptWithErrorFromServer() {
@@ -140,11 +140,11 @@ func (suite *GptTestSuite) TestGptWithErrorFromServer() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	content, history, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	response, err := client.Generate(&prompt, []dto.MessageResponseDto{})
 
 	assert.NotNil(suite.T(), err)
-	assert.Nil(suite.T(), content)
-	assert.Equal(suite.T(), 0, len(history))
+	assert.Nil(suite.T(), response.NewResponses)
+	assert.Nil(suite.T(), response.FullHistory)
 }
 
 func (suite *GptTestSuite) TestGptWithFunctionCall() {
@@ -195,11 +195,11 @@ func (suite *GptTestSuite) TestGptWithFunctionCall() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	newResponses, history, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	response, err := client.Generate(&prompt, []dto.MessageResponseDto{})
 
 	assert.Nil(suite.T(), err)
-	assert.Equal(suite.T(), len(newResponses), 2)
-	assert.Equal(suite.T(), 4, len(history))
+	assert.Equal(suite.T(), len(response.NewResponses), 2)
+	assert.Equal(suite.T(), 4, len(response.FullHistory))
 }
 
 func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
@@ -258,11 +258,11 @@ func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	newResponses, history, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	response, err := client.Generate(&prompt, []dto.MessageResponseDto{})
 
 	assert.Nil(suite.T(), err)
-	assert.Equal(suite.T(), len(newResponses), 3)
-	assert.Equal(suite.T(), 5, len(history))
+	assert.Equal(suite.T(), len(response.NewResponses), 3)
+	assert.Equal(suite.T(), 5, len(response.FullHistory))
 }
 
 func TestUserRepositoryTestSuite(t *testing.T) {

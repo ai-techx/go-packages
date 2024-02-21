@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/fatih/color"
 	"github.com/google/logger"
 	functions2 "github.com/meta-metopia/go-packages/cmd/chat/functions"
 	"github.com/meta-metopia/go-packages/cmd/chat/input"
@@ -59,7 +60,7 @@ func calculatePricing(model Model, history []dto.MessageResponseDto) (total floa
 func main() {
 	logger.Init("Chatbot", true, false, io.Discard)
 	inputClient := input.NewPromptInput()
-	outputClient := output.NewAzureSpeechOutput("zh-CN-XiaoyouNeural")
+	outputClient := output.NewAzureSpeechOutput("zh-CN-YunyangNeural")
 	gptFunctions := []functions.FunctionInterface{
 		functions2.NewGetAllMenuFunction(),
 		functions2.NewCompleteOrderFunction(),
@@ -86,26 +87,45 @@ func main() {
 		}
 
 		fmt.Println("Generating response...")
-		generate, newHistory, err := gptClient.Generate(&prompt, history)
-		if err != nil {
-			return
-		}
-		history = newHistory
-		deleteLastLine()
-		totalPricing, completionToken, promptToken := calculatePricing(model, history)
-		fmt.Printf("(Total pricing: $%.5f, Prompt Token: %d, Completion Token: %d)\n", totalPricing, promptToken, completionToken)
 
-		for _, response := range generate {
-			if len(response.Content) > 0 {
-				fmt.Println("Generating output...")
-				err := outputClient.Run(response.Content)
-				if err != nil {
-					logger.Fatal(err)
-					return
+		for response, err := range gptClient.GenerateIterator(&prompt, history) {
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+
+			history = response.FullHistory
+			deleteLastLine()
+			totalPricing, completionToken, promptToken := calculatePricing(model, history)
+			fmt.Printf(color.RedString("Usage: ")+"Total pricing: $%.5f, Prompt Token: %d, Completion Token: %d\n", totalPricing, promptToken, completionToken)
+			if len(response.NewResponses) == 0 {
+				continue
+			}
+
+			for _, response := range response.NewResponses {
+				if response.FunctionCall != nil {
+					err := outputClient.Run("Function call: " + response.FunctionCall.Name)
+					if err != nil {
+						return
+					}
 				}
-				deleteLastLine()
+
+				if len(response.Content) > 0 {
+					fmt.Println("Generating output...")
+					var content string
+					if response.Name != nil {
+						content = fmt.Sprintf("function call %s: %s", *response.Name, response.Content)
+					} else {
+						content = response.Content
+					}
+					err := outputClient.Run(content)
+					if err != nil {
+						logger.Fatal(err)
+						return
+					}
+					deleteLastLine()
+				}
 			}
 		}
 	}
-
 }

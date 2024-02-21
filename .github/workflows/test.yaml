@@ -6,6 +6,7 @@ jobs:
   build:
     env:
       GOPRIVATE: github.com/meta-metopia/go-packages
+      GOEXPERIMENT: rangefunc
     runs-on: ubuntu-latest
     strategy:
       matrix:
