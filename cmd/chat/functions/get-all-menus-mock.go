@@ -14,7 +14,7 @@ func (m GetAllMenuFunction) OnInit() error {
 
 func (m GetAllMenuFunction) OnMessage(arguments map[string]interface{}) (*functions.FunctionGptResponse, error) {
 	resp := &functions.FunctionGptResponse{
-		Content: "調用函數，獲取菜單成功！",
+		Content: "獲取菜單成功！",
 	}
 
 	return resp, nil

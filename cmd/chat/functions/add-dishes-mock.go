@@ -14,7 +14,7 @@ func (m AddDishFunction) OnInit() error {
 
 func (m AddDishFunction) OnMessage(arguments map[string]interface{}) (*functions.FunctionGptResponse, error) {
 	resp := &functions.FunctionGptResponse{
-		Content: "調用函數，菜單添加成功！",
+		Content: "菜單添加成功！",
 	}
 
 	return resp, nil

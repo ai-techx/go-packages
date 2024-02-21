@@ -11,9 +11,20 @@ import (
 	"strings"
 )
 
+type GenerateResponse struct {
+	NewResponses []dto.MessageResponseDto
+	FullHistory  []dto.MessageResponseDto
+}
+type GenerateIteratorRet = func(func(response GenerateResponse, err error) bool)
+
 type IGptClient interface {
-	Generate(prompt *string, history []dto.MessageResponseDto) ([]dto.MessageResponseDto, []dto.MessageResponseDto, error)
+	//Generate will generate a response from the GPT API.
+	Generate(prompt *string, history []dto.MessageResponseDto) (response GenerateResponse, err error)
+	//GenerateIterator will return the iterator for the GPT client. Instead of returning the full history, it will return the history one by one.
+	GenerateIterator(prompt *string, history []dto.MessageResponseDto) GenerateIteratorRet
+	//SetClient sets the resty client for the GPT client.
 	SetClient(client *resty.Client)
+	//SetFunctions sets the functions for the GPT client.
 	SetFunctions(functions *[]functions.FunctionInterface)
 }
 
@@ -63,71 +74,113 @@ func (g *Client) SetFunctions(functions *[]functions.FunctionInterface) {
 // [newResponses] are list of new responses from the GPT API.
 // [fullHistory] is the full history of the conversation.
 // [err] is the error if there is one.
-func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (newResponses []dto.MessageResponseDto, fullHistory []dto.MessageResponseDto, err error) {
+func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (response GenerateResponse, err error) {
 	if isOpenAIEndpoint(g.config.Endpoint) {
 		if len(g.config.Model) == 0 {
-			return nil, nil, fmt.Errorf("model is required for openai gpt endpoint")
+			return GenerateResponse{}, fmt.Errorf("model is required for openai gpt endpoint")
 		}
 	}
 
 	messages := g.createMessages(prompt, history)
-	newHistory, err := g.generate(messages, err)
+	var newResponses []dto.MessageResponseDto
+	fullHistory := messages
 
-	difference := len(newHistory) - len(messages)
-	if difference > 0 {
-		newResponses = newHistory[len(messages):]
+	for newHistory, err := range g.generate(messages) {
+		if err != nil {
+			return GenerateResponse{}, err
+		}
+
+		fullHistory = append(fullHistory, newHistory)
 	}
-	fullHistory = newHistory
-	return newResponses, fullHistory, err
+
+	difference := len(fullHistory) - len(messages)
+	if difference > 0 {
+		newResponses = fullHistory[len(messages):]
+	}
+
+	return GenerateResponse{
+		NewResponses: newResponses,
+		FullHistory:  fullHistory,
+	}, err
+}
+
+// GenerateIterator returns the iterator for the GPT client. Instead of returning the full history, it will return the history one by one.
+func (g *Client) GenerateIterator(prompt *string, history []dto.MessageResponseDto) GenerateIteratorRet {
+	return func(yield func(response GenerateResponse, err error) bool) {
+		totalHistory := history
+		for response, err := range g.generate(g.createMessages(prompt, history)) {
+			if err != nil {
+				yield(GenerateResponse{}, err)
+				return
+			}
+			totalHistory = append(totalHistory, response)
+			yield(GenerateResponse{
+				NewResponses: []dto.MessageResponseDto{response},
+				FullHistory:  totalHistory,
+			}, nil)
+		}
+	}
 }
 
 // generate generates a response from the GPT API. This is the internal function that is called by Generate.
-func (g *Client) generate(messages []dto.MessageResponseDto, err error) (newHistory []dto.MessageResponseDto, error error) {
-	body := dto.RequestDto{
-		Messages:  messages,
-		Functions: g.generateFunctions(),
+func (g *Client) generate(messages []dto.MessageResponseDto) func(func(response dto.MessageResponseDto, err error) bool) {
+	return func(yield func(response dto.MessageResponseDto, err error) bool) {
+		body := dto.RequestDto{
+			Messages:  messages,
+			Functions: g.generateFunctions(),
+		}
+		newHistory := make([]dto.MessageResponseDto, 0)
+
+		var gptRequest dto.ResponseDto
+
+		requestClient := g.httpClient.R()
+
+		if isOpenAIEndpoint(g.config.Endpoint) {
+			requestClient = requestClient.SetHeader("Authorization", "Bearer "+g.config.ApiKey)
+			body.Model = g.config.Model
+		} else {
+			requestClient = requestClient.SetHeader("api-key", g.config.ApiKey)
+		}
+		response, err := requestClient.SetBody(body).SetResult(
+			&gptRequest,
+		).Post(g.config.Endpoint)
+
+		if err != nil {
+			logger.Error(err)
+			yield(dto.MessageResponseDto{}, err)
+			return
+		}
+
+		if !response.IsSuccess() {
+			logger.Errorf("failed to generate response: %v", response)
+			yield(dto.MessageResponseDto{}, fmt.Errorf("failed to generate response: %v", response))
+			return
+		}
+
+		// use function if there is one
+		message := gptRequest.Choices[0].Message
+		newResponse := dto.MessageResponseDto{
+			Role:         message.Role,
+			Content:      message.Content,
+			Name:         message.Name,
+			FunctionCall: message.FunctionCall,
+			Usage:        gptRequest.Usage,
+		}
+		yield(newResponse, nil)
+		for newHistory, err := range g.useFunction(message, newHistory) {
+			if err != nil {
+				yield(dto.MessageResponseDto{}, err)
+				return
+			}
+
+			yield(newHistory, nil)
+		}
+		if err != nil {
+			logger.Error(err)
+			yield(dto.MessageResponseDto{}, err)
+			return
+		}
 	}
-
-	var gptRequest dto.ResponseDto
-
-	requestClient := g.httpClient.R()
-
-	if isOpenAIEndpoint(g.config.Endpoint) {
-		requestClient = requestClient.SetHeader("Authorization", "Bearer "+g.config.ApiKey)
-		body.Model = g.config.Model
-	} else {
-		requestClient = requestClient.SetHeader("api-key", g.config.ApiKey)
-	}
-	response, err := requestClient.SetBody(body).SetResult(
-		&gptRequest,
-	).Post(g.config.Endpoint)
-
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-
-	if !response.IsSuccess() {
-		logger.Errorf("failed to generate response: %v", response)
-		return nil, fmt.Errorf("failed to generate response: %v", response)
-	}
-
-	// use function if there is one
-	message := gptRequest.Choices[0].Message
-	newHistory = append(messages, dto.MessageResponseDto{
-		Role:         message.Role,
-		Content:      message.Content,
-		Name:         message.Name,
-		FunctionCall: message.FunctionCall,
-		Usage:        gptRequest.Usage,
-	})
-	newHistory, err = g.useFunction(message, newHistory)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-
-	return newHistory, nil
 }
 
 func (g *Client) generateFunctions() []dto.FunctionResponseDto {
@@ -146,44 +199,58 @@ func (g *Client) generateFunctions() []dto.FunctionResponseDto {
 // useFunction uses the function if there is one in the response.
 // It returns the new history and an error if there is one.
 // If the function is configured to use GPT to interpret responses, it will call the GPT API again to interpret the responses.
-func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.MessageResponseDto) ([]dto.MessageResponseDto, error) {
-	newHistory := history
-	if result.FunctionCall != nil {
-		for _, function := range *g.functions {
-			if function.Name() == result.FunctionCall.Name {
-				var functionArguments map[string]interface{}
-				err := json.Unmarshal([]byte(result.FunctionCall.Arguments), &functionArguments)
-				if err != nil {
-					return nil, err
-				}
-				result, err := function.OnMessage(functionArguments)
-				if err != nil {
-					return newHistory, err
-				}
-				logger.Infof("Function %v executed with result %v", function.Name(), result)
-
-				// Add history
-				functionName := function.Name()
-				newHistory = append(newHistory, dto.MessageResponseDto{
-					Role:    RoleFunction,
-					Content: result.Content,
-					Name:    &functionName,
-				})
-				if function.Config().UseGptToInterpretResponses {
-					_, newHistory, err := g.Generate(nil, newHistory)
+func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.MessageResponseDto) func(func(dto.MessageResponseDto, error) bool) {
+	return func(yield func(dto.MessageResponseDto, error) bool) {
+		newHistory := history
+		if result.FunctionCall != nil {
+			for _, function := range *g.functions {
+				if function.Name() == result.FunctionCall.Name {
+					var functionArguments map[string]interface{}
+					err := json.Unmarshal([]byte(result.FunctionCall.Arguments), &functionArguments)
 					if err != nil {
-						return nil, err
+						yield(dto.MessageResponseDto{}, err)
+						return
 					}
-					return newHistory, nil
+					result, err := function.OnMessage(functionArguments)
+					if err != nil {
+						yield(dto.MessageResponseDto{}, err)
+						return
+					}
+					logger.Infof("Function %v executed with result %v", function.Name(), result)
+
+					// Add history
+					functionName := function.Name()
+					message := dto.MessageResponseDto{
+						Role:    RoleFunction,
+						Content: result.Content,
+						Name:    &functionName,
+					}
+					newHistory = append(newHistory, message)
+					yield(message, nil)
+					if function.Config().UseGptToInterpretResponses {
+						for response, err := range g.generate(newHistory) {
+							if err != nil {
+								yield(dto.MessageResponseDto{}, err)
+								return
+							}
+
+							yield(response, nil)
+							newHistory = append(newHistory, response)
+						}
+						if err != nil {
+							yield(dto.MessageResponseDto{}, err)
+							return
+						}
+						return
+					}
+					return
 				}
-
-				return newHistory, nil
 			}
+			yield(dto.MessageResponseDto{}, fmt.Errorf("function %v not found", result.FunctionCall.Name))
+			return
 		}
-		return nil, fmt.Errorf("function %v not found", result.FunctionCall.Name)
+		return
 	}
-
-	return newHistory, nil
 }
 
 // createMessages creates a list of messages with history and prompt included.

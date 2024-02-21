@@ -14,7 +14,7 @@ func (m CompleteOrderFunction) OnInit() error {
 
 func (m CompleteOrderFunction) OnMessage(arguments map[string]interface{}) (*functions.FunctionGptResponse, error) {
 	resp := &functions.FunctionGptResponse{
-		Content: "調用函數，訂單完成！",
+		Content: "訂單完成！",
 	}
 
 	return resp, nil
