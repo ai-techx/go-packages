@@ -37,12 +37,14 @@ func NewGptClient(aiFunctions *[]functions.FunctionInterface, template template.
 	for functionIndex, _ := range *aiFunctions {
 		(*aiFunctions)[functionIndex].SetStore(functionStore)
 	}
+
+	client := resty.New()
 	return &Client{
 		functions:  aiFunctions,
 		template:   template,
 		store:      functionStore,
 		config:     config,
-		httpClient: resty.New(),
+		httpClient: client,
 	}
 }
 
@@ -117,6 +119,7 @@ func (g *Client) generate(messages []dto.MessageResponseDto, err error) (newHist
 		Content:      message.Content,
 		Name:         message.Name,
 		FunctionCall: message.FunctionCall,
+		Usage:        gptRequest.Usage,
 	})
 	newHistory, err = g.useFunction(message, newHistory)
 	if err != nil {
@@ -200,6 +203,7 @@ func (g *Client) createMessages(prompt *string, history []dto.MessageResponseDto
 		})
 	}
 	for _, message := range history {
+		message.Usage = nil
 		messages = append(messages, message)
 	}
 
