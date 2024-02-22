@@ -41,5 +41,5 @@ type FunctionConfig struct {
 }
 
 type FunctionGptResponse struct {
-	Content string `json:"content"`
+	Content interface{} `json:"content"`
 }

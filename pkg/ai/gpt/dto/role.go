@@ -1,4 +1,4 @@
-package gpt
+package dto
 
 type Role = string
 
@@ -9,4 +9,5 @@ const (
 	RoleSystem    Role = "system"
 	RoleFunction  Role = "function"
 	RoleAssistant Role = "assistant"
+	RoleTool      Role = "tool"
 )
