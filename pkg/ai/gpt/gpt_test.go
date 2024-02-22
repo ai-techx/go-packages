@@ -67,16 +67,16 @@ func (suite *GptTestSuite) TestGptWithoutFunctionCall() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	newResponses, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	newResponses, err := client.Generate(&prompt, []dto.Message{})
 
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), len(newResponses.NewResponses), 1)
-	assert.Equal(suite.T(), newResponses.NewResponses[0].Role, RoleAssistant)
+	assert.Equal(suite.T(), newResponses.NewResponses[0].Role, dto.RoleAssistant)
 
 	assert.Equal(suite.T(), 2, len(newResponses.FullHistory))
 
-	assert.Equal(suite.T(), newResponses.FullHistory[0].Role, RoleUser)
-	assert.Equal(suite.T(), newResponses.FullHistory[1].Role, RoleAssistant)
+	assert.Equal(suite.T(), newResponses.FullHistory[0].Role, dto.RoleUser)
+	assert.Equal(suite.T(), newResponses.FullHistory[1].Role, dto.RoleAssistant)
 
 	newResponses, err = client.Generate(&prompt, newResponses.FullHistory)
 
@@ -84,10 +84,78 @@ func (suite *GptTestSuite) TestGptWithoutFunctionCall() {
 	assert.Equal(suite.T(), len(newResponses.NewResponses), 1)
 	assert.Equal(suite.T(), 4, len(newResponses.FullHistory))
 
-	assert.Equal(suite.T(), newResponses.FullHistory[0].Role, RoleUser)
-	assert.Equal(suite.T(), newResponses.FullHistory[1].Role, RoleAssistant)
-	assert.Equal(suite.T(), newResponses.FullHistory[2].Role, RoleUser)
-	assert.Equal(suite.T(), newResponses.FullHistory[3].Role, RoleAssistant)
+	assert.Equal(suite.T(), newResponses.FullHistory[0].Role, dto.RoleUser)
+	assert.Equal(suite.T(), newResponses.FullHistory[1].Role, dto.RoleAssistant)
+	assert.Equal(suite.T(), newResponses.FullHistory[2].Role, dto.RoleUser)
+	assert.Equal(suite.T(), newResponses.FullHistory[3].Role, dto.RoleAssistant)
+}
+
+func (suite *GptTestSuite) TestGptWithoutFunctionCallIterator() {
+	logger.Init("TestLogger", true, false, io.Discard)
+	engine := template.NewMockEngine(suite.ctrl)
+	engine.EXPECT().Render(gomock.Any()).Return("Mock Data", nil).AnyTimes()
+
+	body := map[string]interface{}{
+		"choices": []map[string]interface{}{
+			{
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": "Mock Data",
+				},
+			},
+		},
+	}
+	url := "http://localhost:8080"
+	responder, err := httpmock.NewJsonResponder(http.StatusOK, body)
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+	httpmock.RegisterResponder("POST", url, responder)
+
+	aiFunctions := make([]functions.FunctionInterface, 0)
+	functionStore := make(functions.FunctionStore)
+	client := NewGptClient(
+		&aiFunctions,
+		engine,
+		functionStore,
+		Config{
+			Endpoint: url,
+			ApiKey:   "123",
+		},
+	)
+	client.SetClient(suite.client)
+
+	prompt := "Prompt"
+
+	var finalResponse GenerateResponse
+	for response, err := range client.GenerateIterator(&prompt, []dto.Message{}) {
+		assert.Nil(suite.T(), err)
+		finalResponse = response
+	}
+
+	assert.Nil(suite.T(), err)
+	assert.Equal(suite.T(), len(finalResponse.NewResponses), 1)
+	assert.Equal(suite.T(), finalResponse.NewResponses[0].Role, dto.RoleAssistant)
+
+	assert.Equal(suite.T(), 2, len(finalResponse.FullHistory))
+
+	assert.Equal(suite.T(), finalResponse.FullHistory[0].Role, dto.RoleUser)
+	assert.Equal(suite.T(), finalResponse.FullHistory[1].Role, dto.RoleAssistant)
+
+	//finalResponse, err = client.Generate(&prompt, finalResponse.FullHistory)
+	for response, err := range client.GenerateIterator(&prompt, finalResponse.FullHistory) {
+		assert.Nil(suite.T(), err)
+		finalResponse = response
+	}
+
+	assert.Nil(suite.T(), err)
+	assert.Equal(suite.T(), len(finalResponse.NewResponses), 1)
+	assert.Equal(suite.T(), 4, len(finalResponse.FullHistory))
+
+	assert.Equal(suite.T(), finalResponse.FullHistory[0].Role, dto.RoleUser)
+	assert.Equal(suite.T(), finalResponse.FullHistory[1].Role, dto.RoleAssistant)
+	assert.Equal(suite.T(), finalResponse.FullHistory[2].Role, dto.RoleUser)
+	assert.Equal(suite.T(), finalResponse.FullHistory[3].Role, dto.RoleAssistant)
 }
 
 func (suite *GptTestSuite) TestGptWithError() {
@@ -116,11 +184,45 @@ func (suite *GptTestSuite) TestGptWithError() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	response, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	response, err := client.Generate(&prompt, []dto.Message{})
 
 	assert.NotNil(suite.T(), err)
 	assert.Nil(suite.T(), response.NewResponses)
 	assert.Nil(suite.T(), response.FullHistory)
+}
+
+func (suite *GptTestSuite) TestGptWithErrorIterator() {
+	logger.Init("TestLogger", true, false, io.Discard)
+	engine := template.NewMockEngine(suite.ctrl)
+	engine.EXPECT().Render(gomock.Any()).Return("Mock Data", nil).AnyTimes()
+
+	url := "http://localhost:8080"
+	responder, err := httpmock.NewJsonResponder(http.StatusOK, "invalid json")
+	if err != nil {
+		suite.T().Fatal(err)
+	}
+	httpmock.RegisterResponder("POST", url, responder)
+
+	aiFunctions := make([]functions.FunctionInterface, 0)
+	functionStore := make(functions.FunctionStore)
+	client := NewGptClient(
+		&aiFunctions,
+		engine,
+		functionStore,
+		Config{
+			Endpoint: url,
+			ApiKey:   "123",
+		},
+	)
+	client.SetClient(suite.client)
+
+	prompt := "Prompt"
+	for response, err := range client.GenerateIterator(&prompt, []dto.Message{}) {
+		assert.NotNil(suite.T(), err)
+		assert.Nil(suite.T(), response.NewResponses)
+		assert.Nil(suite.T(), response.FullHistory)
+
+	}
 }
 
 func (suite *GptTestSuite) TestGptWithErrorFromServer() {
@@ -150,7 +252,7 @@ func (suite *GptTestSuite) TestGptWithErrorFromServer() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	response, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	response, err := client.Generate(&prompt, []dto.Message{})
 
 	assert.NotNil(suite.T(), err)
 	assert.Nil(suite.T(), response.NewResponses)
@@ -167,9 +269,15 @@ func (suite *GptTestSuite) TestGptWithFunctionCall() {
 			{
 				"message": map[string]interface{}{
 					"role": "assistant",
-					"function_call": map[string]interface{}{
-						"name":      "Mock Function",
-						"arguments": `{"prompt":"Prompt"}`,
+					"tool_calls": []map[string]interface{}{
+						{
+							"id":   "1",
+							"type": "function",
+							"function": map[string]interface{}{
+								"name":      "Mock Function",
+								"arguments": `{"prompt":"Prompt"}`,
+							},
+						},
 					},
 				},
 			},
@@ -206,15 +314,15 @@ func (suite *GptTestSuite) TestGptWithFunctionCall() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	response, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	response, err := client.Generate(&prompt, []dto.Message{})
 
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), len(response.NewResponses), 2)
 	assert.Equal(suite.T(), 3, len(response.FullHistory))
 
-	assert.Equal(suite.T(), response.FullHistory[0].Role, RoleUser)
-	assert.Equal(suite.T(), response.FullHistory[1].Role, RoleAssistant)
-	assert.Equal(suite.T(), response.FullHistory[2].Role, RoleFunction)
+	assert.Equal(suite.T(), response.FullHistory[0].Role, dto.RoleUser)
+	assert.Equal(suite.T(), response.FullHistory[1].Role, dto.RoleAssistant)
+	assert.Equal(suite.T(), response.FullHistory[2].Role, dto.RoleTool)
 }
 
 func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
@@ -227,9 +335,15 @@ func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
 			{
 				"message": map[string]interface{}{
 					"role": "assistant",
-					"function_call": map[string]interface{}{
-						"name":      "Mock Function",
-						"arguments": `{"prompt":"Prompt"}`,
+					"tool_calls": []map[string]interface{}{
+						{
+							"id":   "1",
+							"type": "function",
+							"function": map[string]interface{}{
+								"name":      "Mock Function",
+								"arguments": `{"prompt":"Prompt"}`,
+							},
+						},
 					},
 				},
 			},
@@ -275,15 +389,15 @@ func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
 	client.SetClient(suite.client)
 
 	prompt := "Prompt"
-	response, err := client.Generate(&prompt, []dto.MessageResponseDto{})
+	response, err := client.Generate(&prompt, []dto.Message{})
 
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), len(response.NewResponses), 3)
 	assert.Equal(suite.T(), 4, len(response.FullHistory))
-	assert.Equal(suite.T(), response.FullHistory[0].Role, RoleUser)
-	assert.Equal(suite.T(), response.FullHistory[1].Role, RoleAssistant)
-	assert.Equal(suite.T(), response.FullHistory[2].Role, RoleFunction)
-	assert.Equal(suite.T(), response.FullHistory[3].Role, RoleAssistant)
+	assert.Equal(suite.T(), response.FullHistory[0].Role, dto.RoleUser)
+	assert.Equal(suite.T(), response.FullHistory[1].Role, dto.RoleAssistant)
+	assert.Equal(suite.T(), response.FullHistory[2].Role, dto.RoleTool)
+	assert.Equal(suite.T(), response.FullHistory[3].Role, dto.RoleAssistant)
 }
 
 func TestUserRepositoryTestSuite(t *testing.T) {

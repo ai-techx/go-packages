@@ -43,7 +43,7 @@ func stringPtr(s string) *string {
 	return &s
 }
 
-func saveHistoryToFile(history []dto.MessageResponseDto, fileName string) {
+func saveHistoryToFile(history []dto.Message, fileName string) {
 	file, err := os.Create(fileName)
 	if err != nil {
 		logger.Fatal(err)
@@ -58,7 +58,7 @@ func saveHistoryToFile(history []dto.MessageResponseDto, fileName string) {
 	_, err = file.Write(indent)
 }
 
-func calculatePricing(model Model, history []dto.MessageResponseDto) (total float64, completionToken int, promptToken int) {
+func calculatePricing(model Model, history []dto.Message) (total float64, completionToken int, promptToken int) {
 	for _, message := range history {
 		if message.Usage == nil {
 			continue
@@ -76,7 +76,7 @@ func calculatePricing(model Model, history []dto.MessageResponseDto) (total floa
 func main() {
 	logger.Init("Chatbot", true, false, io.Discard)
 	inputClient := input.NewPromptInput()
-	outputClient := output.NewAzureSpeechOutput("zh-CN-YunyeNeural")
+	outputClient := output.NewAzureSpeechOutput(os.Getenv("VOICE_NAME"))
 	gptFunctions := []functions.FunctionInterface{
 		functions2.NewGetAllMenuFunction(),
 		functions2.NewCompleteOrderFunction(),
@@ -94,7 +94,7 @@ func main() {
 	templateEngine := template.NewEngine()
 
 	gptClient := gpt.NewGptClient(&gptFunctions, templateEngine, functionStore, config)
-	history := make([]dto.MessageResponseDto, 0)
+	history := make([]dto.Message, 0)
 
 	for prompt, err := range inputClient.Run {
 		if err != nil {
@@ -105,6 +105,7 @@ func main() {
 		fmt.Println("Generating response...")
 
 		for response, err := range gptClient.GenerateIterator(&prompt, history) {
+			saveHistoryToFile(history, "history.json")
 			if err != nil {
 				fmt.Println(err)
 				return
@@ -119,20 +120,12 @@ func main() {
 			}
 
 			for _, response := range response.NewResponses {
-				if response.FunctionCall != nil {
-					err := outputClient.Run("Function call: " + response.FunctionCall.Name)
-					if err != nil {
-						return
-					}
-				}
-
 				if len(response.Content) > 0 {
 					fmt.Println("Generating output...")
 					var content string
+					content = response.Content
 					if response.Name != nil {
-						content = fmt.Sprintf("function call %s: %s", *response.Name, response.Content)
-					} else {
-						content = response.Content
+						content = "調用函數" + *response.Name + ": " + content
 					}
 					err := outputClient.Run(content)
 					if err != nil {
@@ -142,7 +135,6 @@ func main() {
 					deleteLastLine()
 				}
 			}
-			saveHistoryToFile(history, "history.json")
 		}
 	}
 }
