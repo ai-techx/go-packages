@@ -1,44 +1,38 @@
 package functions
 
 import (
+	"fmt"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/functions"
 )
 
 type GetAllMenuFunction struct {
+	functions.FunctionClient
 }
 
-func (m GetAllMenuFunction) OnInit() error {
-	//TODO implement me
-	panic("implement me")
-}
+func (m *GetAllMenuFunction) OnMessage(arguments map[string]interface{}) (*functions.FunctionGptResponse, error) {
+	menuString := ""
 
-func (m GetAllMenuFunction) OnMessage(arguments map[string]interface{}) (*functions.FunctionGptResponse, error) {
+	for i, m := range menus {
+		menuString += fmt.Sprintf("%d. %s,", i+1, m)
+
+	}
+
 	resp := &functions.FunctionGptResponse{
-		Content: "獲取菜單成功！",
+		Content: fmt.Sprintf("這是我們的菜單：%s", menuString),
 	}
 
 	return resp, nil
 }
 
-func (m GetAllMenuFunction) OnBeforeMessageReturned() (*functions.FunctionGptResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m GetAllMenuFunction) OnClose() error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m GetAllMenuFunction) Name() string {
+func (m *GetAllMenuFunction) Name() string {
 	return "get-menu"
 }
 
-func (m GetAllMenuFunction) Description() string {
+func (m *GetAllMenuFunction) Description() string {
 	return "Get the menu of the restaurant."
 }
 
-func (m GetAllMenuFunction) Parameters() map[string]interface{} {
+func (m *GetAllMenuFunction) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type":       "object",
 		"required":   []string{},
@@ -46,12 +40,12 @@ func (m GetAllMenuFunction) Parameters() map[string]interface{} {
 	}
 }
 
-func (m GetAllMenuFunction) SetStore(store functions.FunctionStore) {
+func (m *GetAllMenuFunction) SetStore(store functions.FunctionStore) {
 }
 
-func (m GetAllMenuFunction) Config() functions.FunctionConfig {
+func (m *GetAllMenuFunction) Config() functions.FunctionConfig {
 	return functions.FunctionConfig{
-		UseGptToInterpretResponses: true,
+		UseGptToInterpretResponses: false,
 	}
 }
 

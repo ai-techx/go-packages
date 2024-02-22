@@ -46,10 +46,15 @@ type Client struct {
 // NewGptClient returns a new instance of GptClient.
 func NewGptClient(aiFunctions *[]functions.FunctionInterface, template template.Engine, functionStore functions.FunctionStore, config Config) IGptClient {
 	for functionIndex, _ := range *aiFunctions {
+		err := (*aiFunctions)[functionIndex].OnInit()
+		if err != nil {
+			logger.Fatal(err)
+		}
 		(*aiFunctions)[functionIndex].SetStore(functionStore)
 	}
 
 	client := resty.New()
+	client.SetDebug(true)
 	return &Client{
 		functions:  aiFunctions,
 		template:   template,
@@ -81,9 +86,10 @@ func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (res
 		}
 	}
 
-	messages := g.createMessages(prompt, history)
+	newMessage, messages := g.createMessages(prompt, history)
 	var newResponses []dto.MessageResponseDto
-	fullHistory := messages
+
+	fullHistory := append(history, *newMessage)
 
 	for newHistory, err := range g.generate(messages) {
 		if err != nil {
@@ -93,9 +99,10 @@ func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (res
 		fullHistory = append(fullHistory, newHistory)
 	}
 
-	difference := len(fullHistory) - len(messages)
+	difference := len(fullHistory) + 1 - len(messages)
 	if difference > 0 {
-		newResponses = fullHistory[len(messages):]
+		startingIndex := len(messages) - 1
+		newResponses = filterOutUserMessages(fullHistory[startingIndex:])
 	}
 
 	return GenerateResponse{
@@ -108,7 +115,10 @@ func (g *Client) Generate(prompt *string, history []dto.MessageResponseDto) (res
 func (g *Client) GenerateIterator(prompt *string, history []dto.MessageResponseDto) GenerateIteratorRet {
 	return func(yield func(response GenerateResponse, err error) bool) {
 		totalHistory := history
-		for response, err := range g.generate(g.createMessages(prompt, history)) {
+		newMessage, messages := g.createMessages(prompt, history)
+		totalHistory = append(totalHistory, *newMessage)
+
+		for response, err := range g.generate(messages) {
 			if err != nil {
 				yield(GenerateResponse{}, err)
 				return
@@ -237,6 +247,21 @@ func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.Messag
 							yield(response, nil)
 							newHistory = append(newHistory, response)
 						}
+
+						for response, err := range function.OnAfterGptRespond {
+							if err != nil {
+								yield(dto.MessageResponseDto{}, err)
+								return
+							}
+
+							resp := dto.MessageResponseDto{
+								Role:    RoleAssistant,
+								Content: response.Content,
+							}
+							yield(resp, nil)
+							newHistory = append(newHistory, resp)
+						}
+
 						if err != nil {
 							yield(dto.MessageResponseDto{}, err)
 							return
@@ -254,7 +279,7 @@ func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.Messag
 }
 
 // createMessages creates a list of messages with history and prompt included.
-func (g *Client) createMessages(prompt *string, history []dto.MessageResponseDto) []dto.MessageResponseDto {
+func (g *Client) createMessages(prompt *string, history []dto.MessageResponseDto) (*dto.MessageResponseDto, []dto.MessageResponseDto) {
 	var messages []dto.MessageResponseDto
 	// only add system message if there is no history
 	if len(history) == 0 {
@@ -262,7 +287,7 @@ func (g *Client) createMessages(prompt *string, history []dto.MessageResponseDto
 		renderedPrompt, err := engine.Render(g.config.Prompt)
 		if err != nil {
 			logger.Error(err)
-			return nil
+			return nil, nil
 		}
 		messages = append(messages, dto.MessageResponseDto{
 			Role:    RoleSystem,
@@ -274,15 +299,27 @@ func (g *Client) createMessages(prompt *string, history []dto.MessageResponseDto
 		messages = append(messages, message)
 	}
 
+	var promptMessage dto.MessageResponseDto
 	if prompt != nil {
-		messages = append(messages, dto.MessageResponseDto{
+		promptMessage = dto.MessageResponseDto{
 			Role:    RoleUser,
 			Content: *prompt,
-		})
+		}
+		messages = append(messages, promptMessage)
 	}
-	return messages
+	return &promptMessage, messages
 }
 
 func isOpenAIEndpoint(endpoint string) bool {
 	return strings.Contains(endpoint, "api.openai.com")
+}
+
+func filterOutUserMessages(messages []dto.MessageResponseDto) []dto.MessageResponseDto {
+	var filteredMessages []dto.MessageResponseDto
+	for _, message := range messages {
+		if message.Role != RoleUser {
+			filteredMessages = append(filteredMessages, message)
+		}
+	}
+	return filteredMessages
 }

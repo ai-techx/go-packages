@@ -8,7 +8,8 @@ type MessageResponseDto struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function_call,omitempty"`
-	Usage *Usage `json:"usage,omitempty"`
+	Usage      *Usage  `json:"usage,omitempty"`
+	ToolCallId *string `json:"tool_call_id,omitempty"`
 }
 
 type Usage struct {

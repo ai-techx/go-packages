@@ -71,13 +71,23 @@ func (suite *GptTestSuite) TestGptWithoutFunctionCall() {
 
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), len(newResponses.NewResponses), 1)
-	assert.Equal(suite.T(), 3, len(newResponses.FullHistory))
+	assert.Equal(suite.T(), newResponses.NewResponses[0].Role, RoleAssistant)
+
+	assert.Equal(suite.T(), 2, len(newResponses.FullHistory))
+
+	assert.Equal(suite.T(), newResponses.FullHistory[0].Role, RoleUser)
+	assert.Equal(suite.T(), newResponses.FullHistory[1].Role, RoleAssistant)
 
 	newResponses, err = client.Generate(&prompt, newResponses.FullHistory)
 
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), len(newResponses.NewResponses), 1)
-	assert.Equal(suite.T(), 5, len(newResponses.FullHistory))
+	assert.Equal(suite.T(), 4, len(newResponses.FullHistory))
+
+	assert.Equal(suite.T(), newResponses.FullHistory[0].Role, RoleUser)
+	assert.Equal(suite.T(), newResponses.FullHistory[1].Role, RoleAssistant)
+	assert.Equal(suite.T(), newResponses.FullHistory[2].Role, RoleUser)
+	assert.Equal(suite.T(), newResponses.FullHistory[3].Role, RoleAssistant)
 }
 
 func (suite *GptTestSuite) TestGptWithError() {
@@ -181,6 +191,7 @@ func (suite *GptTestSuite) TestGptWithFunctionCall() {
 	function.EXPECT().Parameters().Return(map[string]interface{}{}).Times(1)
 	function.EXPECT().SetStore(gomock.Any()).Times(1)
 	function.EXPECT().Config().Return(functions.FunctionConfig{UseGptToInterpretResponses: false}).Times(1)
+	function.EXPECT().OnInit().Times(1)
 
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
@@ -199,7 +210,11 @@ func (suite *GptTestSuite) TestGptWithFunctionCall() {
 
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), len(response.NewResponses), 2)
-	assert.Equal(suite.T(), 4, len(response.FullHistory))
+	assert.Equal(suite.T(), 3, len(response.FullHistory))
+
+	assert.Equal(suite.T(), response.FullHistory[0].Role, RoleUser)
+	assert.Equal(suite.T(), response.FullHistory[1].Role, RoleAssistant)
+	assert.Equal(suite.T(), response.FullHistory[2].Role, RoleFunction)
 }
 
 func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
@@ -244,6 +259,8 @@ func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
 	function.EXPECT().Parameters().Return(map[string]interface{}{}).AnyTimes()
 	function.EXPECT().SetStore(gomock.Any()).Times(1)
 	function.EXPECT().Config().Return(functions.FunctionConfig{UseGptToInterpretResponses: true}).Times(1)
+	function.EXPECT().OnInit().Times(1)
+	function.EXPECT().OnAfterGptRespond(gomock.Any()).Times(1)
 
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
@@ -262,7 +279,11 @@ func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
 
 	assert.Nil(suite.T(), err)
 	assert.Equal(suite.T(), len(response.NewResponses), 3)
-	assert.Equal(suite.T(), 5, len(response.FullHistory))
+	assert.Equal(suite.T(), 4, len(response.FullHistory))
+	assert.Equal(suite.T(), response.FullHistory[0].Role, RoleUser)
+	assert.Equal(suite.T(), response.FullHistory[1].Role, RoleAssistant)
+	assert.Equal(suite.T(), response.FullHistory[2].Role, RoleFunction)
+	assert.Equal(suite.T(), response.FullHistory[3].Role, RoleAssistant)
 }
 
 func TestUserRepositoryTestSuite(t *testing.T) {
