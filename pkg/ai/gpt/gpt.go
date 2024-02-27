@@ -95,8 +95,9 @@ func (g *Client) Generate(prompt *string, history []dto.Message) (response Gener
 		if err != nil {
 			return GenerateResponse{}, err
 		}
-
-		fullHistory = append(fullHistory, newHistory)
+		if !newHistory.Config.ExcludeFromHistory {
+			fullHistory = append(fullHistory, newHistory)
+		}
 	}
 
 	difference := len(fullHistory) + 1 - len(messages)
@@ -123,7 +124,9 @@ func (g *Client) GenerateIterator(prompt *string, history []dto.Message) Generat
 				yield(GenerateResponse{}, err)
 				return
 			}
-			totalHistory = append(totalHistory, response)
+			if !response.Config.ExcludeFromHistory {
+				totalHistory = append(totalHistory, response)
+			}
 			yield(GenerateResponse{
 				NewResponses: []dto.Message{response},
 				FullHistory:  totalHistory,
@@ -235,8 +238,11 @@ func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.Messag
 							Role:       dto.RoleTool,
 							Content:    convertFunctionContentToString(result.Content),
 							ToolCallId: &toolCall.Id,
+							Config:     result.Config,
 						}
-						newHistory = append(newHistory, message)
+						if !result.Config.ExcludeFromHistory {
+							newHistory = append(newHistory, message)
+						}
 						yield(message, nil)
 						if function.Config().UseGptToInterpretResponses {
 							for response, err := range g.generate(newHistory) {
@@ -258,9 +264,12 @@ func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.Messag
 								resp := dto.Message{
 									Role:    dto.RoleAssistant,
 									Content: convertFunctionContentToString(response.Content),
+									Config:  response.Config,
 								}
 								yield(resp, nil)
-								newHistory = append(newHistory, resp)
+								if !response.Config.ExcludeFromHistory {
+									newHistory = append(newHistory, resp)
+								}
 							}
 
 							if err != nil {
