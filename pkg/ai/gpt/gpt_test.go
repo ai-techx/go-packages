@@ -29,6 +29,7 @@ func (suite *GptTestSuite) SetupTest() {
 
 func (suite *GptTestSuite) TearDownTest() {
 	httpmock.DeactivateAndReset()
+	suite.ctrl.Finish()
 }
 
 func (suite *GptTestSuite) TestGptWithoutFunctionCall() {
@@ -398,6 +399,134 @@ func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
 	assert.Equal(suite.T(), response.FullHistory[1].Role, dto.RoleAssistant)
 	assert.Equal(suite.T(), response.FullHistory[2].Role, dto.RoleTool)
 	assert.Equal(suite.T(), response.FullHistory[3].Role, dto.RoleAssistant)
+}
+
+func (suite *GptTestSuite) TestShouldIncludeInHistoryTrue() {
+	logger.Init("TestLogger", true, false, io.Discard)
+	engine := template.NewMockEngine(suite.ctrl)
+	engine.EXPECT().Render(gomock.Any()).Return("Mock Data", nil).AnyTimes()
+
+	body, _ := httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
+		"choices": []map[string]interface{}{
+			{
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"tool_calls": []map[string]interface{}{
+						{
+							"id":   "1",
+							"type": "function",
+							"function": map[string]interface{}{
+								"name":      "Mock Function",
+								"arguments": `{"prompt":"Prompt"}`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	url := "http://localhost:8080"
+	responder := httpmock.ResponderFromResponse(body)
+	httpmock.RegisterResponder("POST", url, responder)
+
+	var aiFunctions = make([]functions.FunctionInterface, 1)
+	function := functions.NewMockFunctionInterface(suite.ctrl)
+	aiFunctions[0] = function
+	function.EXPECT().OnMessage(gomock.Any()).Return(&functions.FunctionGptResponse{Content: "Mock Function Response", Config: functions.FunctionGptResponseConfig{ExcludeFromHistory: false}}, nil).AnyTimes()
+	function.EXPECT().Name().Return("Mock Function").AnyTimes()
+	function.EXPECT().Description().Return("Mock Function Description").AnyTimes()
+	function.EXPECT().Parameters().Return(map[string]interface{}{}).AnyTimes()
+	function.EXPECT().SetStore(gomock.Any()).Times(1)
+	function.EXPECT().Config().Return(functions.FunctionConfig{UseGptToInterpretResponses: false}).AnyTimes()
+	function.EXPECT().OnInit().Times(1)
+	function.EXPECT().OnAfterGptRespond(gomock.Any()).AnyTimes()
+
+	functionStore := make(functions.FunctionStore)
+	client := NewGptClient(
+		&aiFunctions,
+		engine,
+		functionStore,
+		Config{
+			Endpoint: url,
+			ApiKey:   "123",
+		},
+	)
+	client.SetClient(suite.client)
+
+	prompt := "Prompt"
+	// Repeat with ShouldIncludeInHistory set to false
+	response, err := client.Generate(&prompt, []dto.Message{})
+
+	assert.Nil(suite.T(), err)
+	assert.Equal(suite.T(), 2, len(response.NewResponses))
+	assert.Equal(suite.T(), 3, len(response.FullHistory))
+	assert.Equal(suite.T(), response.FullHistory[0].Role, dto.RoleUser)
+	assert.Equal(suite.T(), response.FullHistory[1].Role, dto.RoleAssistant)
+	assert.Equal(suite.T(), response.FullHistory[2].Role, dto.RoleTool)
+}
+
+func (suite *GptTestSuite) TestShouldIncludeInHistoryFalse() {
+	logger.Init("TestLogger", true, false, io.Discard)
+	engine := template.NewMockEngine(suite.ctrl)
+	engine.EXPECT().Render(gomock.Any()).Return("Mock Data", nil).AnyTimes()
+
+	body, _ := httpmock.NewJsonResponse(http.StatusOK, map[string]interface{}{
+		"choices": []map[string]interface{}{
+			{
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"tool_calls": []map[string]interface{}{
+						{
+							"id":   "1",
+							"type": "function",
+							"function": map[string]interface{}{
+								"name":      "Mock Function",
+								"arguments": `{"prompt":"Prompt"}`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	url := "http://localhost:8080"
+	responder := httpmock.ResponderFromResponse(body)
+	httpmock.RegisterResponder("POST", url, responder)
+
+	var aiFunctions = make([]functions.FunctionInterface, 1)
+	function := functions.NewMockFunctionInterface(suite.ctrl)
+	aiFunctions[0] = function
+	function.EXPECT().OnMessage(gomock.Any()).Return(&functions.FunctionGptResponse{Content: "Mock Function Response", Config: functions.FunctionGptResponseConfig{ExcludeFromHistory: true}}, nil).AnyTimes()
+	function.EXPECT().Name().Return("Mock Function").AnyTimes()
+	function.EXPECT().Description().Return("Mock Function Description").AnyTimes()
+	function.EXPECT().Parameters().Return(map[string]interface{}{}).AnyTimes()
+	function.EXPECT().SetStore(gomock.Any()).Times(1)
+	function.EXPECT().Config().Return(functions.FunctionConfig{UseGptToInterpretResponses: false}).AnyTimes()
+	function.EXPECT().OnInit().Times(1)
+	function.EXPECT().OnAfterGptRespond(gomock.Any()).AnyTimes()
+
+	functionStore := make(functions.FunctionStore)
+	client := NewGptClient(
+		&aiFunctions,
+		engine,
+		functionStore,
+		Config{
+			Endpoint: url,
+			ApiKey:   "123",
+		},
+	)
+	client.SetClient(suite.client)
+
+	prompt := "Prompt"
+	response, err := client.Generate(&prompt, []dto.Message{})
+
+	assert.Nil(suite.T(), err)
+	assert.Equal(suite.T(), 1, len(response.NewResponses))
+	assert.Equal(suite.T(), 2, len(response.FullHistory))
+	assert.Equal(suite.T(), response.FullHistory[0].Role, dto.RoleUser)
+	assert.Equal(suite.T(), response.FullHistory[1].Role, dto.RoleAssistant)
 }
 
 func TestUserRepositoryTestSuite(t *testing.T) {

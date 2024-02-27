@@ -36,6 +36,9 @@ func (m *AddDishFunction) OnAfterGptRespond(yield func(functions.FunctionGptResp
 	}
 	yield(functions.FunctionGptResponse{
 		Content: "我們還推介你吃我們的甲板飯，請問你需要嗎？",
+		Config: functions.FunctionGptResponseConfig{
+			ExcludeFromHistory: true,
+		},
 	}, nil)
 	m.hasCalledAfterGptRespond = true
 }

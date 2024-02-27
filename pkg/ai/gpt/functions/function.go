@@ -40,6 +40,12 @@ type FunctionConfig struct {
 	UseGptToInterpretResponses bool `json:"useGptToInterpretResponses"`
 }
 
+type FunctionGptResponseConfig struct {
+	// ShouldIncludeInHistory is a flag to indicate whether the response should be included in the history.
+	ExcludeFromHistory bool `json:"excludeFromHistory"`
+}
+
 type FunctionGptResponse struct {
-	Content interface{} `json:"content"`
+	Config  FunctionGptResponseConfig `json:"config"`
+	Content interface{}               `json:"content"`
 }
