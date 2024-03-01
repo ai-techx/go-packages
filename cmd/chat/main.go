@@ -7,11 +7,12 @@ import (
 	"github.com/google/logger"
 	functions2 "github.com/meta-metopia/go-packages/cmd/chat/functions"
 	"github.com/meta-metopia/go-packages/cmd/chat/input"
-	"github.com/meta-metopia/go-packages/cmd/chat/output"
+	plugins2 "github.com/meta-metopia/go-packages/cmd/chat/plugins"
 	"github.com/meta-metopia/go-packages/cmd/chat/template"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/dto"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/functions"
+	"github.com/meta-metopia/go-packages/pkg/ai/gpt/plugin"
 	"io"
 	"os"
 )
@@ -76,24 +77,31 @@ func calculatePricing(model Model, history []dto.Message) (total float64, comple
 func main() {
 	logger.Init("Chatbot", true, false, io.Discard)
 	inputClient := input.NewPromptInput()
-	outputClient := output.NewAzureSpeechOutput(os.Getenv("VOICE_NAME"))
 	gptFunctions := []functions.FunctionInterface{
-		functions2.NewGetAllMenuFunction(),
-		functions2.NewCompleteOrderFunction(),
 		functions2.NewAddDishFunction(),
+		functions2.NewCompleteOrderFunction(),
+		functions2.NewGetAllMenuFunction(),
+	}
+	plugins := []plugin.Interface{
+		plugin.NewStandardOutputPlugin(),
+		plugins2.NewAzurePlugin(os.Getenv("VOICE_NAME")),
 	}
 
 	functionStore := functions.FunctionStore{}
 	model := AvailableModels[0]
-	config := gpt.Config{
-		Endpoint: "https://api.openai.com/v1/chat/completions",
-		Model:    model.Name,
-		ApiKey:   os.Getenv("OPENAPI_KEY"),
-		Prompt:   `你是一個點餐機器人，你可以幫用戶去點餐。`,
-	}
 	templateEngine := template.NewEngine()
+	config := gpt.Config{
+		Endpoint:  "https://api.openai.com/v1/chat/completions",
+		Model:     model.Name,
+		ApiKey:    os.Getenv("OPENAI_KEY"),
+		Prompt:    `你是一個問答機器人`,
+		Functions: &gptFunctions,
+		Store:     functionStore,
+		Template:  templateEngine,
+		Plugins:   &plugins,
+	}
 
-	gptClient := gpt.NewGptClient(&gptFunctions, templateEngine, functionStore, config)
+	gptClient := gpt.NewGptClient(config)
 	history := make([]dto.Message, 0)
 
 	for prompt, err := range inputClient.Run {
@@ -112,7 +120,6 @@ func main() {
 			}
 
 			history = response.FullHistory
-			deleteLastLine()
 			totalPricing, completionToken, promptToken := calculatePricing(model, history)
 			fmt.Printf(color.RedString("Usage: ")+"Total pricing: $%.5f, Prompt Token: %d, Completion Token: %d\n", totalPricing, promptToken, completionToken)
 			if len(response.NewResponses) == 0 {
@@ -121,18 +128,12 @@ func main() {
 
 			for _, response := range response.NewResponses {
 				if len(response.Content) > 0 {
-					fmt.Println("Generating output...")
 					var content string
 					content = response.Content
 					if response.Name != nil {
 						content = "調用函數" + *response.Name + ": " + content
 					}
-					err := outputClient.Run(content)
-					if err != nil {
-						logger.Fatal(err)
-						return
-					}
-					deleteLastLine()
+					fmt.Println(content)
 				}
 			}
 		}

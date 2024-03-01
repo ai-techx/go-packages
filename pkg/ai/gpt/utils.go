@@ -20,17 +20,6 @@ func filterOutUserMessages(messages []dto.Message) []dto.Message {
 	return filteredMessages
 }
 
-func convertMessageResponseDtoToMessage(messages []dto.MessageResponseDto) []dto.Message {
-	var convertedMessages []dto.Message
-	for _, message := range messages {
-		convertedMessages = append(convertedMessages, dto.Message{
-			Role:    message.Role,
-			Content: message.Content,
-		})
-	}
-	return convertedMessages
-}
-
 func stringPtr(s string) *string {
 	return &s
 }
@@ -44,6 +33,9 @@ func cleanMessages(messages []dto.Message) []dto.Message {
 	return messages
 }
 
+// convertFunctionContentToString converts the content to a string depending on the type
+// since the content in GptRequest can be a string or a pointer to a string.
+// if the content is not a string or a pointer to a string, it will be marshaled to a string.
 func convertFunctionContentToString(content interface{}) string {
 	switch content.(type) {
 	case string:

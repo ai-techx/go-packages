@@ -8,6 +8,7 @@ import (
 	template "github.com/meta-metopia/go-packages/pkg/ai"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/dto"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/functions"
+	"github.com/meta-metopia/go-packages/pkg/ai/gpt/plugin"
 	"os"
 )
 
@@ -19,46 +20,55 @@ type GenerateIteratorRet = func(func(response GenerateResponse, err error) bool)
 
 type IGptClient interface {
 	//Generate will generate a response from the GPT API.
-	Generate(prompt *string, history []dto.Message) (response GenerateResponse, err error)
+	Generate(prompt any, history []dto.Message) (response GenerateResponse, err error)
 	//GenerateIterator will return the iterator for the GPT client. Instead of returning the full history, it will return the history one by one.
 	GenerateIterator(prompt *string, history []dto.Message) GenerateIteratorRet
 	//SetClient sets the resty client for the GPT client.
 	SetClient(client *resty.Client)
-	//SetFunctions sets the functions for the GPT client.
+	//SetFunctions sets the Functions for the GPT client.
 	SetFunctions(functions *[]functions.FunctionInterface)
 }
 
 type Config struct {
-	Endpoint string
-	ApiKey   string
-	Prompt   string
-	Model    string
+	Endpoint  string
+	ApiKey    string
+	Prompt    string
+	Model     string
+	Functions *[]functions.FunctionInterface
+	Plugins   *[]plugin.Interface
+	Store     functions.FunctionStore
+	Template  template.Engine
 }
 
 type Client struct {
-	functions  *[]functions.FunctionInterface
-	store      functions.FunctionStore
-	template   template.Engine
 	config     Config
 	httpClient *resty.Client
 }
 
 // NewGptClient returns a new instance of GptClient.
-func NewGptClient(aiFunctions *[]functions.FunctionInterface, template template.Engine, functionStore functions.FunctionStore, config Config) IGptClient {
-	for functionIndex, _ := range *aiFunctions {
-		err := (*aiFunctions)[functionIndex].OnInit()
+func NewGptClient(config Config) IGptClient {
+	var initialPlugins []plugin.Interface
+	if config.Plugins == nil {
+		initialPlugins = []plugin.Interface{
+			plugin.NewStandardOutputPlugin(),
+		}
+		config.Plugins = &initialPlugins
+	}
+	if config.Functions == nil {
+		config.Functions = &[]functions.FunctionInterface{}
+	}
+	for functionIndex, _ := range *config.Functions {
+		err := (*config.Functions)[functionIndex].OnInit()
 		if err != nil {
 			logger.Fatal(err)
 		}
-		(*aiFunctions)[functionIndex].SetStore(functionStore)
+		(*config.Functions)[functionIndex].SetStore(config.Store)
 	}
 
 	client := resty.New()
 	client.SetDebug(os.Getenv("DEBUG") == "true")
+
 	return &Client{
-		functions:  aiFunctions,
-		template:   template,
-		store:      functionStore,
 		config:     config,
 		httpClient: client,
 	}
@@ -69,9 +79,9 @@ func (g *Client) SetClient(client *resty.Client) {
 	g.httpClient = client
 }
 
-// SetFunctions sets the functions for the GPT client.
+// SetFunctions sets the Functions for the GPT client.
 func (g *Client) SetFunctions(functions *[]functions.FunctionInterface) {
-	g.functions = functions
+	g.config.Functions = functions
 }
 
 // Generate generates a response from the GPT API.
@@ -79,14 +89,20 @@ func (g *Client) SetFunctions(functions *[]functions.FunctionInterface) {
 // [newResponses] are list of new responses from the GPT API.
 // [fullHistory] is the full history of the conversation.
 // [err] is the error if there is one.
-func (g *Client) Generate(prompt *string, history []dto.Message) (response GenerateResponse, err error) {
+func (g *Client) Generate(prompt any, history []dto.Message) (response GenerateResponse, err error) {
+	input, err := g.usePluginForInput(prompt)
+	if err != nil {
+		logger.Error(err)
+		return GenerateResponse{}, err
+	}
+
 	if isOpenAIEndpoint(g.config.Endpoint) {
 		if len(g.config.Model) == 0 {
 			return GenerateResponse{}, fmt.Errorf("model is required for openai gpt endpoint")
 		}
 	}
 
-	newMessage, messages := g.createMessages(prompt, history)
+	newMessage, messages := g.createMessages(input, history)
 	var newResponses []dto.Message
 
 	fullHistory := append(history, *newMessage)
@@ -114,9 +130,17 @@ func (g *Client) Generate(prompt *string, history []dto.Message) (response Gener
 
 // GenerateIterator returns the iterator for the GPT client. Instead of returning the full history, it will return the history one by one.
 func (g *Client) GenerateIterator(prompt *string, history []dto.Message) GenerateIteratorRet {
+	input, err := g.usePluginForInput(*prompt)
+	if err != nil {
+		logger.Error(err)
+		return func(func(response GenerateResponse, err error) bool) {
+			return
+		}
+	}
+
 	return func(yield func(response GenerateResponse, err error) bool) {
 		totalHistory := history
-		newMessage, messages := g.createMessages(prompt, history)
+		newMessage, messages := g.createMessages(input, history)
 		totalHistory = append(totalHistory, *newMessage)
 
 		for response, err := range g.generate(messages) {
@@ -124,13 +148,23 @@ func (g *Client) GenerateIterator(prompt *string, history []dto.Message) Generat
 				yield(GenerateResponse{}, err)
 				return
 			}
-			if !response.Config.ExcludeFromHistory {
-				totalHistory = append(totalHistory, response)
+
+			for response, err := range g.usePluginForOutput(response) {
+				if err != nil {
+					yield(GenerateResponse{}, err)
+					return
+				}
+
+				if !response.Config.ExcludeFromHistory {
+					totalHistory = append(totalHistory, response)
+				}
+
+				yield(GenerateResponse{
+					NewResponses: []dto.Message{response},
+					FullHistory:  totalHistory,
+				}, nil)
+
 			}
-			yield(GenerateResponse{
-				NewResponses: []dto.Message{response},
-				FullHistory:  totalHistory,
-			}, nil)
 		}
 	}
 }
@@ -196,7 +230,7 @@ func (g *Client) generate(messages []dto.Message) func(func(response dto.Message
 
 func (g *Client) generateFunctions() []dto.Tool {
 	var returnedFunctions []dto.Tool
-	for _, function := range *g.functions {
+	for _, function := range *g.config.Functions {
 		returnedFunctions = append(returnedFunctions, dto.Tool{
 			Type: "function",
 			Function: dto.ToolFunction{
@@ -210,6 +244,54 @@ func (g *Client) generateFunctions() []dto.Tool {
 	return returnedFunctions
 }
 
+// usePluginForInput uses the plugin for the input.
+func (g *Client) usePluginForInput(input any) (*string, error) {
+	output := input
+	for _, foundPlugin := range *g.config.Plugins {
+		convertedOutput, err := foundPlugin.ConvertInput(output)
+		if err != nil {
+			return nil, err
+		}
+
+		if convertedOutput != nil {
+			output = convertedOutput
+		}
+	}
+
+	if value, ok := output.(*string); ok {
+		return value, nil
+	}
+
+	if value, ok := output.(string); ok {
+		return &value, nil
+	}
+
+	return nil, fmt.Errorf("last plugin should return a string value. Got %v", output)
+}
+
+// usePluginForOutput uses the plugin for the output.
+func (g *Client) usePluginForOutput(response dto.Message) func(yield func(response dto.Message, err error) bool) {
+	return func(yield func(response dto.Message, err error) bool) {
+		if g.config.Plugins == nil {
+			return
+		}
+		for _, foundPlugin := range *g.config.Plugins {
+			convertedResponse, err := foundPlugin.ConvertOutput(response)
+			if err != nil {
+				yield(dto.Message{}, err)
+				return
+			}
+			if convertedResponse != nil {
+				yield(*convertedResponse.Message, nil)
+				if convertedResponse.Action == plugin.TerminateOutputAction {
+					return
+				}
+			}
+		}
+	}
+
+}
+
 // useFunction uses the function if there is one in the response.
 // It returns the new history and an error if there is one.
 // If the function is configured to use GPT to interpret responses, it will call the GPT API again to interpret the responses.
@@ -218,7 +300,7 @@ func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.Messag
 		newHistory := history
 		if result.ToolCalls != nil && len(*result.ToolCalls) > 0 {
 			for _, toolCall := range *result.ToolCalls {
-				for _, function := range *g.functions {
+				for _, function := range *g.config.Functions {
 					if function.Name() == toolCall.Function.Name {
 						var functionArguments map[string]interface{}
 						err := json.Unmarshal([]byte(toolCall.Function.Arguments), &functionArguments)
@@ -255,28 +337,27 @@ func (g *Client) useFunction(result dto.MessageResponseDto, history []dto.Messag
 								newHistory = append(newHistory, response)
 							}
 
-							for response, err := range function.OnAfterGptRespond {
-								if err != nil {
-									yield(dto.Message{}, err)
-									return
-								}
-
-								resp := dto.Message{
-									Role:    dto.RoleAssistant,
-									Content: convertFunctionContentToString(response.Content),
-									Config:  response.Config,
-								}
-								yield(resp, nil)
-								if !response.Config.ExcludeFromHistory {
-									newHistory = append(newHistory, resp)
-								}
-							}
-
 							if err != nil {
 								yield(dto.Message{}, err)
 								return
 							}
 							return
+						}
+						for response, err := range function.OnAfterGptRespond {
+							if err != nil {
+								yield(dto.Message{}, err)
+								return
+							}
+
+							resp := dto.Message{
+								Role:    dto.RoleAssistant,
+								Content: convertFunctionContentToString(response.Content),
+								Config:  response.Config,
+							}
+							yield(resp, nil)
+							if !response.Config.ExcludeFromHistory {
+								newHistory = append(newHistory, resp)
+							}
 						}
 						return
 					}
@@ -292,7 +373,7 @@ func (g *Client) createMessages(prompt *string, history []dto.Message) (*dto.Mes
 	var messages []dto.Message
 	// only add system message if there is no history
 
-	engine := g.template
+	engine := g.config.Template
 	renderedPrompt, err := engine.Render(g.config.Prompt)
 	if err != nil {
 		logger.Error(err)
