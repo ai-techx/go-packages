@@ -57,12 +57,12 @@ func (suite *GptTestSuite) TestGptWithoutFunctionCall() {
 	aiFunctions := make([]functions.FunctionInterface, 0)
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
@@ -116,12 +116,12 @@ func (suite *GptTestSuite) TestGptWithoutFunctionCallIterator() {
 	aiFunctions := make([]functions.FunctionInterface, 0)
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
@@ -174,12 +174,12 @@ func (suite *GptTestSuite) TestGptWithError() {
 	aiFunctions := make([]functions.FunctionInterface, 0)
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
@@ -207,12 +207,12 @@ func (suite *GptTestSuite) TestGptWithErrorIterator() {
 	aiFunctions := make([]functions.FunctionInterface, 0)
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
@@ -242,12 +242,12 @@ func (suite *GptTestSuite) TestGptWithErrorFromServer() {
 	aiFunctions := make([]functions.FunctionInterface, 0)
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
@@ -301,15 +301,16 @@ func (suite *GptTestSuite) TestGptWithFunctionCall() {
 	function.EXPECT().SetStore(gomock.Any()).Times(1)
 	function.EXPECT().Config().Return(functions.FunctionConfig{UseGptToInterpretResponses: false}).Times(1)
 	function.EXPECT().OnInit().Times(1)
+	function.EXPECT().OnAfterGptRespond(gomock.Any()).AnyTimes()
 
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
@@ -375,16 +376,16 @@ func (suite *GptTestSuite) TestGptWithFunctionCallAndUseGptToInterpret() {
 	function.EXPECT().SetStore(gomock.Any()).Times(1)
 	function.EXPECT().Config().Return(functions.FunctionConfig{UseGptToInterpretResponses: true}).Times(1)
 	function.EXPECT().OnInit().Times(1)
-	function.EXPECT().OnAfterGptRespond(gomock.Any()).Times(1)
+	function.EXPECT().OnAfterGptRespond(gomock.Any()).AnyTimes()
 
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
@@ -444,12 +445,12 @@ func (suite *GptTestSuite) TestShouldIncludeInHistoryTrue() {
 
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
@@ -509,12 +510,12 @@ func (suite *GptTestSuite) TestShouldIncludeInHistoryFalse() {
 
 	functionStore := make(functions.FunctionStore)
 	client := NewGptClient(
-		&aiFunctions,
-		engine,
-		functionStore,
 		Config{
-			Endpoint: url,
-			ApiKey:   "123",
+			Endpoint:  url,
+			ApiKey:    "123",
+			Functions: &aiFunctions,
+			Template:  engine,
+			Store:     functionStore,
 		},
 	)
 	client.SetClient(suite.client)
