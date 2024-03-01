@@ -20,7 +20,7 @@ type GenerateIteratorRet = func(func(response GenerateResponse, err error) bool)
 
 type IGptClient interface {
 	//Generate will generate a response from the GPT API.
-	Generate(prompt *string, history []dto.Message) (response GenerateResponse, err error)
+	Generate(prompt any, history []dto.Message) (response GenerateResponse, err error)
 	//GenerateIterator will return the iterator for the GPT client. Instead of returning the full history, it will return the history one by one.
 	GenerateIterator(prompt *string, history []dto.Message) GenerateIteratorRet
 	//SetClient sets the resty client for the GPT client.
@@ -47,6 +47,16 @@ type Client struct {
 
 // NewGptClient returns a new instance of GptClient.
 func NewGptClient(config Config) IGptClient {
+	var initialPlugins []plugin.Interface
+	if config.Plugins == nil {
+		initialPlugins = []plugin.Interface{
+			plugin.NewStandardOutputPlugin(),
+		}
+		config.Plugins = &initialPlugins
+	}
+	if config.Functions == nil {
+		config.Functions = &[]functions.FunctionInterface{}
+	}
 	for functionIndex, _ := range *config.Functions {
 		err := (*config.Functions)[functionIndex].OnInit()
 		if err != nil {
@@ -57,6 +67,7 @@ func NewGptClient(config Config) IGptClient {
 
 	client := resty.New()
 	client.SetDebug(os.Getenv("DEBUG") == "true")
+
 	return &Client{
 		config:     config,
 		httpClient: client,
@@ -78,8 +89,8 @@ func (g *Client) SetFunctions(functions *[]functions.FunctionInterface) {
 // [newResponses] are list of new responses from the GPT API.
 // [fullHistory] is the full history of the conversation.
 // [err] is the error if there is one.
-func (g *Client) Generate(prompt *string, history []dto.Message) (response GenerateResponse, err error) {
-	input, err := g.usePluginForInput(*prompt)
+func (g *Client) Generate(prompt any, history []dto.Message) (response GenerateResponse, err error) {
+	input, err := g.usePluginForInput(prompt)
 	if err != nil {
 		logger.Error(err)
 		return GenerateResponse{}, err
@@ -137,24 +148,22 @@ func (g *Client) GenerateIterator(prompt *string, history []dto.Message) Generat
 				yield(GenerateResponse{}, err)
 				return
 			}
-			if !response.Config.ExcludeFromHistory {
-				totalHistory = append(totalHistory, response)
-			}
 
 			for response, err := range g.usePluginForOutput(response) {
 				if err != nil {
 					yield(GenerateResponse{}, err)
 					return
 				}
+
+				if !response.Config.ExcludeFromHistory {
+					totalHistory = append(totalHistory, response)
+				}
+
 				yield(GenerateResponse{
 					NewResponses: []dto.Message{response},
 					FullHistory:  totalHistory,
 				}, nil)
 
-				if response.Config.ExcludeFromHistory {
-					continue
-				}
-				totalHistory = append(totalHistory, response)
 			}
 		}
 	}
@@ -236,20 +245,28 @@ func (g *Client) generateFunctions() []dto.Tool {
 }
 
 // usePluginForInput uses the plugin for the input.
-func (g *Client) usePluginForInput(input string) (*string, error) {
-	output := &input
-	var err error
-	if g.config.Plugins == nil {
-		return output, nil
-	}
-
+func (g *Client) usePluginForInput(input any) (*string, error) {
+	output := input
 	for _, foundPlugin := range *g.config.Plugins {
-		output, err = foundPlugin.ConvertInput(output)
+		convertedOutput, err := foundPlugin.ConvertInput(output)
 		if err != nil {
 			return nil, err
 		}
+
+		if convertedOutput != nil {
+			output = convertedOutput
+		}
 	}
-	return output, nil
+
+	if value, ok := output.(*string); ok {
+		return value, nil
+	}
+
+	if value, ok := output.(string); ok {
+		return &value, nil
+	}
+
+	return nil, fmt.Errorf("last plugin should return a string value. Got %v", output)
 }
 
 // usePluginForOutput uses the plugin for the output.
@@ -258,8 +275,6 @@ func (g *Client) usePluginForOutput(response dto.Message) func(yield func(respon
 		if g.config.Plugins == nil {
 			return
 		}
-
-		yield(response, nil)
 		for _, foundPlugin := range *g.config.Plugins {
 			convertedResponse, err := foundPlugin.ConvertOutput(response)
 			if err != nil {
@@ -268,6 +283,9 @@ func (g *Client) usePluginForOutput(response dto.Message) func(yield func(respon
 			}
 			if convertedResponse != nil {
 				yield(*convertedResponse.Message, nil)
+				if convertedResponse.Action == plugin.TerminateOutputAction {
+					return
+				}
 			}
 		}
 	}

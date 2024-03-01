@@ -7,6 +7,7 @@ import (
 	"github.com/faiface/beep/speaker"
 	"github.com/go-resty/resty/v2"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/dto"
+	"github.com/meta-metopia/go-packages/pkg/ai/gpt/functions"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/plugin"
 	"os"
 	"time"
@@ -19,15 +20,15 @@ type AzurePlugin struct {
 	outputFormat string
 }
 
-func (c *AzurePlugin) Name() string {
+func (a *AzurePlugin) Name() string {
 	return "AzurePlugin"
 }
 
-func (c *AzurePlugin) Description() string {
+func (a *AzurePlugin) Description() string {
 	return "AzurePlugin"
 }
 
-func (c *AzurePlugin) ConvertOutput(response dto.Message) (*plugin.ConvertedResponse, error) {
+func (a *AzurePlugin) ConvertOutput(response dto.Message) (*plugin.ConvertedResponse, error) {
 	if response.Content == "" {
 		return nil, nil
 	}
@@ -36,11 +37,11 @@ func (c *AzurePlugin) ConvertOutput(response dto.Message) (*plugin.ConvertedResp
 		`<speak version='1.0' xml:lang='zh-CN'><voice xml:lang='zh-CN' xml:gender='Male'
     name='%s'>
        %s
-</voice></speak>`, c.speaker, response.Content)
+</voice></speak>`, a.speaker, response.Content)
 
-	outputResponse, err := c.client.R().
+	outputResponse, err := a.client.R().
 		SetHeader("Content-Type", "application/ssml+xml").
-		SetHeader("X-Microsoft-OutputFormat", c.outputFormat).
+		SetHeader("X-Microsoft-OutputFormat", a.outputFormat).
 		SetBody(requestBody).Post("cognitiveservices/v1")
 
 	if err != nil {
@@ -55,15 +56,18 @@ func (c *AzurePlugin) ConvertOutput(response dto.Message) (*plugin.ConvertedResp
 		return nil, fmt.Errorf("no audio returned")
 	}
 
-	err = c.playAudio(outputResponse)
+	err = a.playAudio(outputResponse)
 	if err != nil {
 		return nil, err
 	}
 
 	return &plugin.ConvertedResponse{
-		Action: plugin.AddToOutputAfter,
+		Action: plugin.ContinueOutputAction,
 		Message: &dto.Message{
 			Content: "Mock Output",
+			Config: functions.FunctionGptResponseConfig{
+				ExcludeFromHistory: true,
+			},
 		},
 	}, nil
 }

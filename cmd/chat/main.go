@@ -77,14 +77,13 @@ func calculatePricing(model Model, history []dto.Message) (total float64, comple
 func main() {
 	logger.Init("Chatbot", true, false, io.Discard)
 	inputClient := input.NewPromptInput()
-	//outputClient := output.NewAzureSpeechOutput(os.Getenv("VOICE_NAME"))
 	gptFunctions := []functions.FunctionInterface{
 		functions2.NewAddDishFunction(),
 		functions2.NewCompleteOrderFunction(),
 		functions2.NewGetAllMenuFunction(),
 	}
-
 	plugins := []plugin.Interface{
+		plugin.NewStandardOutputPlugin(),
 		plugins2.NewAzurePlugin(os.Getenv("VOICE_NAME")),
 	}
 
@@ -94,7 +93,7 @@ func main() {
 	config := gpt.Config{
 		Endpoint:  "https://api.openai.com/v1/chat/completions",
 		Model:     model.Name,
-		ApiKey:    os.Getenv("OPENAPI_KEY"),
+		ApiKey:    os.Getenv("OPENAI_KEY"),
 		Prompt:    `你是一個問答機器人`,
 		Functions: &gptFunctions,
 		Store:     functionStore,
@@ -134,12 +133,7 @@ func main() {
 					if response.Name != nil {
 						content = "調用函數" + *response.Name + ": " + content
 					}
-					//err := outputClient.Run(content)
 					fmt.Println(content)
-					//if err != nil {
-					//	logger.Fatal(err)
-					//	return
-					//}
 				}
 			}
 		}
