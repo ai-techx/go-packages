@@ -27,6 +27,8 @@ type IGptClient interface {
 	SetClient(client *resty.Client)
 	//SetFunctions sets the Functions for the GPT client.
 	SetFunctions(functions *[]functions.FunctionInterface)
+	//SetPlugins sets the Plugins for the GPT client.
+	SetPlugins(plugins *[]plugin.Interface)
 }
 
 type Config struct {
@@ -82,6 +84,11 @@ func (g *Client) SetClient(client *resty.Client) {
 // SetFunctions sets the Functions for the GPT client.
 func (g *Client) SetFunctions(functions *[]functions.FunctionInterface) {
 	g.config.Functions = functions
+}
+
+// SetPlugins sets the Plugins for the GPT client.
+func (g *Client) SetPlugins(plugins *[]plugin.Interface) {
+	g.config.Plugins = plugins
 }
 
 // Generate generates a response from the GPT API.

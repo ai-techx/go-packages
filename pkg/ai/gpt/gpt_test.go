@@ -7,6 +7,7 @@ import (
 	template "github.com/meta-metopia/go-packages/pkg/ai"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/dto"
 	"github.com/meta-metopia/go-packages/pkg/ai/gpt/functions"
+	"github.com/meta-metopia/go-packages/pkg/ai/gpt/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -619,6 +620,12 @@ func (suite *GptTestSuite) TestShouldIncludeInHistoryFalse() {
 	assert.Equal(suite.T(), 2, len(response.FullHistory))
 	assert.Equal(suite.T(), response.FullHistory[0].Role, dto.RoleUser)
 	assert.Equal(suite.T(), response.FullHistory[1].Role, dto.RoleAssistant)
+}
+
+func (suite *GptTestSuite) TestSetPlugin() {
+	client := &Client{}
+	client.SetPlugins(&[]plugin.Interface{plugin.NewStandardOutputPlugin()})
+	assert.Equal(suite.T(), len(*client.config.Plugins), 1)
 }
 
 func TestUserRepositoryTestSuite(t *testing.T) {
